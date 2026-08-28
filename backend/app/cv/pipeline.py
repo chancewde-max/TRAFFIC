@@ -22,14 +22,26 @@ from ..config import settings
 from ..models import Camera
 from ..schemas import VehiclePosition
 from .geo_projection import FAR_M, NEAR_M, bbox_center_uv, project_detection
+from .road_geometry import LatLon, point_at_distance, polyline_length_m
 from .tracker import IouTracker
 
 logger = logging.getLogger(__name__)
 
 
 class MockCameraSimulator:
-    def __init__(self, camera: Camera, seed: int | None = None) -> None:
+    def __init__(
+        self,
+        camera: Camera,
+        road_points: list[LatLon] | None = None,
+        seed: int | None = None,
+    ) -> None:
         self.camera = camera
+        # When a real nearby road was found (see road_snap.py), vehicles move
+        # along its actual polyline instead of the synthetic radial cone --
+        # real streets, real turns, not a straight line through the block.
+        self.road_points = road_points if road_points and len(road_points) >= 2 else None
+        self.road_length_m = polyline_length_m(self.road_points) if self.road_points else 0.0
+
         rng_seed = seed if seed is not None else (hash(camera.id) & 0xFFFFFFFF)
         self.rng = random.Random(rng_seed)
         self.base_density = self.rng.uniform(2, 14)
@@ -46,23 +58,56 @@ class MockCameraSimulator:
     def _spawn(self) -> None:
         tid = self._next_track_id
         self._next_track_id += 1
-        self.vehicles[tid] = {
-            "u": self.rng.uniform(-0.4, 0.4),
-            "v": self.rng.uniform(0.0, 0.15),
-            "speed": self.rng.uniform(0.04, 0.11),  # fraction of camera depth-of-view per second
-            "vehicle_class": self.rng.choices(
-                ["car", "truck", "bus", "motorcycle"], weights=[80, 10, 5, 5]
-            )[0],
-        }
+        vehicle_class = self.rng.choices(
+            ["car", "truck", "bus", "motorcycle"], weights=[80, 10, 5, 5]
+        )[0]
 
-    async def tick_or_read(self, dt: float, t: float) -> list[VehiclePosition]:
-        target = self._target_density(t)
-        if len(self.vehicles) < target and self.rng.random() < 0.5:
-            self._spawn()
-        if len(self.vehicles) > target + 3 and self.rng.random() < 0.3 and self.vehicles:
-            del self.vehicles[self.rng.choice(list(self.vehicles.keys()))]
+        if self.road_points is not None and self.road_length_m > 1.0:
+            direction = self.rng.choice((1, -1))
+            edge_margin = min(15.0, self.road_length_m * 0.15)
+            if direction == 1:
+                s = self.rng.uniform(0.0, edge_margin)
+            else:
+                s = self.rng.uniform(self.road_length_m - edge_margin, self.road_length_m)
+            self.vehicles[tid] = {
+                "s": s,
+                "direction": direction,
+                "speed": self.rng.uniform(3.0, 9.0),  # m/s
+                "vehicle_class": vehicle_class,
+            }
+        else:
+            self.vehicles[tid] = {
+                "u": self.rng.uniform(-0.4, 0.4),
+                "v": self.rng.uniform(0.0, 0.15),
+                "speed": self.rng.uniform(0.04, 0.11),  # fraction of depth-of-view per second
+                "vehicle_class": vehicle_class,
+            }
 
-        congestion_factor = min(1.0, len(self.vehicles) / 16.0)
+    def _tick_road(self, dt: float, congestion_factor: float) -> list[VehiclePosition]:
+        positions: list[VehiclePosition] = []
+        for tid, veh in list(self.vehicles.items()):
+            speed = veh["speed"] * (1.0 - 0.6 * congestion_factor)
+            veh["s"] += veh["direction"] * speed * dt
+            if veh["s"] <= 0.0 or veh["s"] >= self.road_length_m:
+                del self.vehicles[tid]
+                continue
+
+            road_point = point_at_distance(self.road_points, veh["s"])
+            heading = road_point.heading_deg if veh["direction"] == 1 else (road_point.heading_deg + 180) % 360
+            positions.append(
+                VehiclePosition(
+                    camera_id=self.camera.id,
+                    track_id=tid,
+                    lat=road_point.lat,
+                    lon=road_point.lon,
+                    heading_deg=heading,
+                    speed_mps=round(min(speed, 20.0), 2),
+                    vehicle_class=veh["vehicle_class"],
+                )
+            )
+        return positions
+
+    def _tick_radial(self, dt: float, congestion_factor: float) -> list[VehiclePosition]:
         positions: list[VehiclePosition] = []
         for tid, veh in list(self.vehicles.items()):
             speed = veh["speed"] * (1.0 - 0.6 * congestion_factor)
@@ -90,6 +135,18 @@ class MockCameraSimulator:
                 )
             )
         return positions
+
+    async def tick_or_read(self, dt: float, t: float) -> list[VehiclePosition]:
+        target = self._target_density(t)
+        if len(self.vehicles) < target and self.rng.random() < 0.5:
+            self._spawn()
+        if len(self.vehicles) > target + 3 and self.rng.random() < 0.3 and self.vehicles:
+            del self.vehicles[self.rng.choice(list(self.vehicles.keys()))]
+
+        congestion_factor = min(1.0, len(self.vehicles) / 16.0)
+        if self.road_points is not None:
+            return self._tick_road(dt, congestion_factor)
+        return self._tick_radial(dt, congestion_factor)
 
     def close(self) -> None:
         pass
@@ -145,10 +202,10 @@ class LiveCameraPipeline:
             self.cap.release()
 
 
-def build_pipeline(camera: Camera, detector=None):
+def build_pipeline(camera: Camera, detector=None, road_points: list[LatLon] | None = None):
     if settings.camera_mode == "live" and camera.stream_url and detector is not None:
         try:
             return LiveCameraPipeline(camera, detector)
         except Exception:
             logger.exception("Falling back to mock simulator for camera %s", camera.id)
-    return MockCameraSimulator(camera)
+    return MockCameraSimulator(camera, road_points=road_points)

@@ -43,6 +43,14 @@ class Settings:
     detection_confidence: float = float(os.environ.get("DETECTION_CONFIDENCE", "0.35"))
     frame_sample_seconds: float = float(os.environ.get("FRAME_SAMPLE_SECONDS", "1.0"))
 
+    # Snaps each camera's simulated vehicle motion to the nearest real street
+    # (OpenStreetMap via Overpass), instead of a straight synthetic line.
+    # Best-effort: any fetch failure just leaves those cameras on the
+    # straight-line fallback, so this is safe to leave on everywhere.
+    road_snap_enabled: bool = _bool("ROAD_SNAP_ENABLED", True)
+    road_snap_radius_m: float = float(os.environ.get("ROAD_SNAP_RADIUS_M", "150"))
+    road_snap_timeout_s: float = float(os.environ.get("ROAD_SNAP_TIMEOUT_S", "30"))
+
     # How many cameras to run pipelines for at once (keeps CPU/GPU load bounded)
     max_active_cameras: int = int(os.environ.get("MAX_ACTIVE_CAMERAS", "12"))
 

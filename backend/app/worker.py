@@ -11,6 +11,7 @@ from .camera_registry import sync_camera_registry
 from .config import settings
 from .cv.detector import build_detector
 from .cv.pipeline import build_pipeline
+from .cv.road_snap import fetch_roads_near_cameras
 from .db import session_scope
 from .models import Camera, CongestionSample, Incident, VehicleTrackSample
 from .mqtt_client import IncidentListener
@@ -182,9 +183,22 @@ async def run_worker(stop_event: asyncio.Event) -> None:
             build_detector, settings.yolo_model, settings.detection_confidence
         )
 
+    roads_by_camera: dict[str, list] = {}
+    if settings.road_snap_enabled:
+        roads_by_camera = await asyncio.to_thread(
+            fetch_roads_near_cameras, cameras, settings.road_snap_radius_m, settings.road_snap_timeout_s
+        )
+
     incident_detector = IncidentDetector()
     tasks = [
-        asyncio.create_task(_camera_loop(camera, build_pipeline(camera, detector), incident_detector, stop_event))
+        asyncio.create_task(
+            _camera_loop(
+                camera,
+                build_pipeline(camera, detector, roads_by_camera.get(camera.id)),
+                incident_detector,
+                stop_event,
+            )
+        )
         for camera in cameras
     ]
 

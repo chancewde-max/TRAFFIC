@@ -55,19 +55,35 @@ Set with `CAMERA_MODE` (backend env var):
   destination outright. A normal machine or cloud host with unrestricted
   outbound internet should connect fine.
 
+### Road-snapped motion
+
+In mock mode, each camera is matched at startup to the nearest real street
+from OpenStreetMap (`backend/app/cv/road_snap.py`, one batched query to the
+public Overpass API covering every camera). When a match is found within
+`ROAD_SNAP_RADIUS_M` (default 150m), simulated vehicles move by arc-length
+along that street's actual polyline (`backend/app/cv/road_geometry.py`) --
+real curves and turns, entering from one end and exiting the other, instead
+of a straight synthetic line through the block. Any failure (no network, no
+nearby drivable road, Overpass timeout) leaves that camera on the fallback
+below rather than breaking anything; check the `Road snapping: matched X/Y
+cameras` log line at startup to see how many actually got a real road.
+Disable entirely with `ROAD_SNAP_ENABLED=false`.
+
 ### Important limitation: vehicle positions are approximate
 
 Public traffic cameras like DDOT's don't publish per-camera calibration
 (lens intrinsics, mounting angle/height). Without that, there's no way to
-compute an exact pixel → GPS transform. Instead, `backend/app/cv/geo_projection.py`
-uses a simple ground-plane approximation: a detection's horizontal position
-in frame becomes an angular offset from the camera's assumed compass bearing,
-and its vertical position becomes an assumed distance (closer to the bottom
-of frame = closer to the camera, within a 6–70m assumed range). This places
-vehicles at a *plausible* spot near their camera — good for a city-wide "here's
-where traffic is moving" visualization, not for lane-level or GPS-grade
-accuracy. Real per-camera bearings would improve this; the seed data ships
-with a reasonable guess per intersection.
+compute an exact pixel → GPS transform. The fallback in
+`backend/app/cv/geo_projection.py` (used for live-mode detections always, and
+for mock-mode cameras with no road match) is a simple ground-plane
+approximation: a detection's horizontal position in frame becomes an angular
+offset from the camera's assumed compass bearing, and its vertical position
+becomes an assumed distance (closer to the bottom of frame = closer to the
+camera, within a 6–70m assumed range). This places vehicles at a *plausible*
+spot near their camera — good for a city-wide "here's where traffic is
+moving" visualization, not for lane-level or GPS-grade accuracy. Real
+per-camera bearings would improve this; the seed data ships with a
+reasonable guess per intersection.
 
 ### Congestion & incidents
 
@@ -152,15 +168,17 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Covers the pixel→geo projection, the IOU tracker, congestion thresholds, and
-the rolling-baseline incident detector. `.github/workflows/ci.yml` runs this
-plus a frontend build on every push.
+Covers the pixel→geo projection, road-polyline arc-length math, the IOU
+tracker, congestion thresholds, and the rolling-baseline incident detector.
+`.github/workflows/ci.yml` runs this plus a frontend build on every push.
 
 ## Key files
 
 ```
 backend/app/
-  cv/geo_projection.py   pixel -> lat/lon approximation
+  cv/geo_projection.py   pixel -> lat/lon approximation (fallback / live mode)
+  cv/road_geometry.py     polyline arc-length math (pure, no network)
+  cv/road_snap.py           fetches real roads near each camera (Overpass API)
   cv/detector.py          YOLO vehicle detector (live mode)
   cv/tracker.py            lightweight IOU tracker
   cv/pipeline.py            per-camera mock simulator + live pipeline
