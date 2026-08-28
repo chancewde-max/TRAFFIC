@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -103,10 +105,36 @@ def fetch_roads_near_cameras(
     all_ways: list[list[LatLon]] = []
     chunks = [cameras[i : i + CHUNK_SIZE] for i in range(0, len(cameras), CHUNK_SIZE)]
 
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
+        if i > 0:
+            # Firing chunks back-to-back gets the shared public Overpass
+            # instance to rate-limit us (HTTP 429) partway through -- a
+            # small gap between requests avoids that.
+            time.sleep(2.0)
+
         query = _build_query(chunk, radius_m, overpass_timeout_s=max(5, int(timeout) - 5))
         try:
             elements = _query_overpass(query, timeout)
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                logger.info("Overpass rate-limited a chunk of %d camera(s); backing off and retrying once", len(chunk))
+                time.sleep(10.0)
+                try:
+                    elements = _query_overpass(query, timeout)
+                except Exception:
+                    logger.warning(
+                        "Overpass retry also failed for a chunk of %d camera(s); those fall back to radial motion",
+                        len(chunk),
+                        exc_info=True,
+                    )
+                    continue
+            else:
+                logger.warning(
+                    "Overpass road fetch failed for a chunk of %d camera(s); those fall back to radial motion",
+                    len(chunk),
+                    exc_info=True,
+                )
+                continue
         except Exception:
             logger.warning(
                 "Overpass road fetch failed for a chunk of %d camera(s); those fall back to radial motion",
