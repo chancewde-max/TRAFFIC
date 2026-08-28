@@ -61,7 +61,11 @@ export default function Map3D({
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 
-    const overlay = new MapboxOverlay({ interleaved: true, layers: [] });
+    const overlay = new MapboxOverlay({
+      interleaved: true,
+      layers: [],
+      getCursor: ({ isHovering, isDragging }) => (isDragging ? "grabbing" : isHovering ? "pointer" : "grab"),
+    });
     overlayRef.current = overlay;
     map.addControl(overlay as unknown as maplibregl.IControl);
 
@@ -114,7 +118,9 @@ export default function Map3D({
       diskResolution: 6,
       radius: 26,
       extruded: true,
-      pickable: false,
+      pickable: true,
+      autoHighlight: true,
+      highlightColor: [255, 255, 255, 100],
       opacity: 0.55,
       getPosition: (c) => [c.lon, c.lat],
       getElevation: (c) => {
@@ -128,6 +134,9 @@ export default function Map3D({
       updateTriggers: {
         getElevation: congestionByCamera,
         getFillColor: congestionByCamera,
+      },
+      onClick: (info) => {
+        if (info.object) onSelectCamera((info.object as Camera).id);
       },
     });
 
