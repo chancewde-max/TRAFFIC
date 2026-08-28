@@ -2,11 +2,11 @@
 the public Overpass API, so simulated (and eventually detected) vehicles can
 move along actual road geometry instead of a straight synthetic line.
 
-Best-effort and stdlib-only (no new dependency): a single batched query
-covers every camera in one request. Any failure -- network, timeout,
-malformed response -- returns an empty mapping rather than raising, so
-callers fall back to the existing radial motion per camera exactly as if no
-road were found for it.
+Best-effort and stdlib-only (no new dependency): queries are chunked (a few
+cameras per request) since the public Overpass instance times out on one big
+query covering many locations at once. Any failure -- network, timeout,
+malformed response -- for a chunk just drops those cameras back to the
+existing radial motion; it never raises out of fetch_roads_near_cameras.
 """
 
 from __future__ import annotations
@@ -22,32 +22,39 @@ logger = logging.getLogger(__name__)
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
+# Cameras per Overpass request. The public instance times out (504) on one
+# big query covering ~28 locations with a tag filter; a handful per request
+# comes back in a few seconds.
+CHUNK_SIZE = 6
+
 # Road types that actually carry car traffic -- excludes footways, cycleways,
 # steps, pedestrian plazas, etc. so vehicles don't end up snapped to a
-# sidewalk.
-DRIVABLE_HIGHWAY_TYPES = (
-    "motorway",
-    "trunk",
-    "primary",
-    "secondary",
-    "tertiary",
-    "unclassified",
-    "residential",
-    "living_street",
-    "motorway_link",
-    "trunk_link",
-    "primary_link",
-    "secondary_link",
-    "tertiary_link",
+# sidewalk. Filtered client-side (see below) rather than with a server-side
+# regex, which is measurably more expensive for Overpass to evaluate.
+DRIVABLE_HIGHWAY_TYPES = frozenset(
+    {
+        "motorway",
+        "trunk",
+        "primary",
+        "secondary",
+        "tertiary",
+        "unclassified",
+        "residential",
+        "living_street",
+        "motorway_link",
+        "trunk_link",
+        "primary_link",
+        "secondary_link",
+        "tertiary_link",
+    }
 )
 
 
 def _build_query(cameras: list, radius_m: float, overpass_timeout_s: int) -> str:
-    highway_filter = "^(" + "|".join(DRIVABLE_HIGHWAY_TYPES) + ")$"
-    clauses = "\n  ".join(
-        f'way(around:{radius_m},{c.lat},{c.lon})[highway~"{highway_filter}"];' for c in cameras
-    )
-    return f"[out:json][timeout:{overpass_timeout_s}];\n(\n  {clauses}\n);\nout geom;"
+    # Cheap presence filter server-side; the specific drivable-type check
+    # happens client-side against each way's tags below.
+    clauses = "\n  ".join(f"way(around:{radius_m},{c.lat},{c.lon})[highway];" for c in cameras)
+    return f"[out:json][timeout:{overpass_timeout_s}];\n(\n  {clauses}\n);\nout tags geom;"
 
 
 def _query_overpass(query: str, timeout: float) -> list[dict]:
@@ -69,38 +76,51 @@ def _query_overpass(query: str, timeout: float) -> list[dict]:
     return payload.get("elements", [])
 
 
-def fetch_roads_near_cameras(
-    cameras: list, radius_m: float = 150.0, timeout: float = 30.0
-) -> dict[str, list[LatLon]]:
-    """Returns {camera_id: road_polyline} for cameras where a nearby drivable
-    road was found. Cameras with no match (or if the fetch fails entirely)
-    are simply absent from the result."""
-
-    if not cameras:
-        return {}
-
-    query = _build_query(cameras, radius_m, overpass_timeout_s=max(5, int(timeout) - 5))
-
-    try:
-        elements = _query_overpass(query, timeout)
-    except Exception:
-        logger.warning("Overpass road fetch failed; all cameras fall back to radial motion", exc_info=True)
-        return {}
-
+def _parse_drivable_ways(elements: list[dict]) -> list[list[LatLon]]:
     ways: list[list[LatLon]] = []
     for el in elements:
         if el.get("type") != "way":
+            continue
+        if el.get("tags", {}).get("highway") not in DRIVABLE_HIGHWAY_TYPES:
             continue
         geometry = el.get("geometry") or []
         points = [(pt["lat"], pt["lon"]) for pt in geometry if pt and "lat" in pt and "lon" in pt]
         if len(points) >= 2:
             ways.append(points)
+    return ways
+
+
+def fetch_roads_near_cameras(
+    cameras: list, radius_m: float = 150.0, timeout: float = 30.0
+) -> dict[str, list[LatLon]]:
+    """Returns {camera_id: road_polyline} for cameras where a nearby drivable
+    road was found. Cameras with no match (or whose chunk's fetch failed)
+    are simply absent from the result."""
+
+    if not cameras:
+        return {}
+
+    all_ways: list[list[LatLon]] = []
+    chunks = [cameras[i : i + CHUNK_SIZE] for i in range(0, len(cameras), CHUNK_SIZE)]
+
+    for chunk in chunks:
+        query = _build_query(chunk, radius_m, overpass_timeout_s=max(5, int(timeout) - 5))
+        try:
+            elements = _query_overpass(query, timeout)
+        except Exception:
+            logger.warning(
+                "Overpass road fetch failed for a chunk of %d camera(s); those fall back to radial motion",
+                len(chunk),
+                exc_info=True,
+            )
+            continue
+        all_ways.extend(_parse_drivable_ways(elements))
 
     result: dict[str, list[LatLon]] = {}
     for camera in cameras:
         best_dist = float("inf")
         best_points: list[LatLon] | None = None
-        for points in ways:
+        for points in all_ways:
             dist, _arc = nearest_arc_length_m(points, camera.lat, camera.lon)
             if dist < best_dist:
                 best_dist = dist
@@ -112,6 +132,6 @@ def fetch_roads_near_cameras(
         "Road snapping: matched %d/%d cameras to a real road (%d candidate ways fetched)",
         len(result),
         len(cameras),
-        len(ways),
+        len(all_ways),
     )
     return result
