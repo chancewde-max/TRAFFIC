@@ -50,6 +50,9 @@ class Settings:
     road_snap_enabled: bool = _bool("ROAD_SNAP_ENABLED", True)
     road_snap_radius_m: float = float(os.environ.get("ROAD_SNAP_RADIUS_M", "150"))
     road_snap_timeout_s: float = float(os.environ.get("ROAD_SNAP_TIMEOUT_S", "30"))
+    # Persisted alongside the database (same volume in production) so a
+    # redeploy doesn't need to re-query Overpass for cameras already matched.
+    road_cache_path: str = os.environ.get("ROAD_CACHE_PATH", "./data/road_cache.json")
 
     # How many cameras to run pipelines for at once (keeps CPU/GPU load bounded)
     max_active_cameras: int = int(os.environ.get("MAX_ACTIVE_CAMERAS", "12"))

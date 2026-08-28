@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -92,18 +93,50 @@ def _parse_drivable_ways(elements: list[dict]) -> list[list[LatLon]]:
     return ways
 
 
+def _load_cache(path: str) -> dict[str, list[LatLon]]:
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+        return {cid: [(pt[0], pt[1]) for pt in pts] for cid, pts in raw.items()}
+    except (FileNotFoundError, json.JSONDecodeError, OSError, KeyError, IndexError, TypeError):
+        return {}
+
+
+def _save_cache(path: str, data: dict[str, list[LatLon]]) -> None:
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({cid: [list(pt) for pt in pts] for cid, pts in data.items()}, f)
+    except OSError:
+        logger.warning("Failed to write road cache to %s", path, exc_info=True)
+
+
 def fetch_roads_near_cameras(
-    cameras: list, radius_m: float = 150.0, timeout: float = 30.0
+    cameras: list, radius_m: float = 150.0, timeout: float = 30.0, cache_path: str | None = None
 ) -> dict[str, list[LatLon]]:
     """Returns {camera_id: road_polyline} for cameras where a nearby drivable
     road was found. Cameras with no match (or whose chunk's fetch failed)
-    are simply absent from the result."""
+    are simply absent from the result.
+
+    When cache_path is given, cameras already matched on a previous run are
+    served from disk instead of re-querying Overpass -- this is real road
+    geometry that doesn't change, so there's no reason to keep asking a
+    shared public API for it on every restart. Only cameras still unmatched
+    are (re-)fetched, so a previous rate-limit/timeout isn't permanent.
+    """
 
     if not cameras:
         return {}
 
+    cached = _load_cache(cache_path) if cache_path else {}
+    to_fetch = [c for c in cameras if c.id not in cached]
+
+    if not to_fetch:
+        logger.info("Road snapping: all %d/%d cameras served from cache", len(cameras), len(cameras))
+        return {c.id: cached[c.id] for c in cameras}
+
     all_ways: list[list[LatLon]] = []
-    chunks = [cameras[i : i + CHUNK_SIZE] for i in range(0, len(cameras), CHUNK_SIZE)]
+    chunks = [to_fetch[i : i + CHUNK_SIZE] for i in range(0, len(to_fetch), CHUNK_SIZE)]
 
     for i, chunk in enumerate(chunks):
         if i > 0:
@@ -144,8 +177,8 @@ def fetch_roads_near_cameras(
             continue
         all_ways.extend(_parse_drivable_ways(elements))
 
-    result: dict[str, list[LatLon]] = {}
-    for camera in cameras:
+    newly_matched: dict[str, list[LatLon]] = {}
+    for camera in to_fetch:
         best_dist = float("inf")
         best_points: list[LatLon] | None = None
         for points in all_ways:
@@ -154,12 +187,19 @@ def fetch_roads_near_cameras(
                 best_dist = dist
                 best_points = points
         if best_points is not None and best_dist <= radius_m:
-            result[camera.id] = best_points
+            newly_matched[camera.id] = best_points
+
+    if cache_path and newly_matched:
+        _save_cache(cache_path, {**cached, **newly_matched})
+
+    result = {**{cid: pts for cid, pts in cached.items() if cid in {c.id for c in cameras}}, **newly_matched}
 
     logger.info(
-        "Road snapping: matched %d/%d cameras to a real road (%d candidate ways fetched)",
+        "Road snapping: matched %d/%d cameras to a real road (%d cached, %d newly fetched, %d candidate ways queried)",
         len(result),
         len(cameras),
+        len(cached),
+        len(newly_matched),
         len(all_ways),
     )
     return result

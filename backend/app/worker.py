@@ -186,7 +186,11 @@ async def run_worker(stop_event: asyncio.Event) -> None:
     roads_by_camera: dict[str, list] = {}
     if settings.road_snap_enabled:
         roads_by_camera = await asyncio.to_thread(
-            fetch_roads_near_cameras, cameras, settings.road_snap_radius_m, settings.road_snap_timeout_s
+            fetch_roads_near_cameras,
+            cameras,
+            settings.road_snap_radius_m,
+            settings.road_snap_timeout_s,
+            settings.road_cache_path,
         )
 
     incident_detector = IncidentDetector()
