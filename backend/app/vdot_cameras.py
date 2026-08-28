@@ -34,6 +34,29 @@ def _get(obj: dict, *candidates: str) -> Any:
     return None
 
 
+def _flatten_feature(entry: dict) -> dict:
+    """The real response is standard GeoJSON Features: {type, geometry:
+    {type, coordinates: [lon, lat]}, properties: {...all the useful
+    fields...}}. Flattens that into one dict so the extraction helpers below
+    can do simple key lookups regardless of whether a given entry turns out
+    to be a plain flat object instead (defensive: keeps working either way)."""
+
+    flat: dict[str, Any] = {}
+    props = entry.get("properties")
+    if isinstance(props, dict):
+        flat.update(props)
+    flat.update({k: v for k, v in entry.items() if k not in ("properties", "geometry")})
+
+    geometry = entry.get("geometry")
+    if isinstance(geometry, dict):
+        coords = geometry.get("coordinates")
+        if isinstance(coords, list) and len(coords) >= 2:
+            flat.setdefault("lon", coords[0])
+            flat.setdefault("lat", coords[1])
+
+    return flat
+
+
 def _extract_lat_lon(entry: dict) -> tuple[float, float] | None:
     lat = _get(entry, "latitude", "lat", "y")
     lon = _get(entry, "longitude", "lon", "lng", "x")
@@ -43,9 +66,9 @@ def _extract_lat_lon(entry: dict) -> tuple[float, float] | None:
         if isinstance(geom, dict):
             lat = lat if lat is not None else _get(geom, "latitude", "lat", "y")
             lon = lon if lon is not None else _get(geom, "longitude", "lon", "lng", "x")
-        coords = _get(entry, "coordinates")
-        if lat is None and isinstance(coords, list) and len(coords) >= 2:
-            lon, lat = coords[0], coords[1]
+            coords = _get(geom, "coordinates")
+            if lat is None and isinstance(coords, list) and len(coords) >= 2:
+                lon, lat = coords[0], coords[1]
 
     try:
         return float(lat), float(lon)
@@ -56,13 +79,12 @@ def _extract_lat_lon(entry: dict) -> tuple[float, float] | None:
 def _extract_image_url(entry: dict) -> str | None:
     direct = _get(
         entry,
-        "imageurl",
         "image_url",
-        "snapshoturl",
+        "imageurl",
         "snapshot_url",
+        "snapshoturl",
         "thumbnailurl",
         "thumbnail",
-        "url",
         "img",
     )
     if isinstance(direct, str) and direct.startswith("http"):
@@ -82,22 +104,33 @@ def _extract_image_url(entry: dict) -> str | None:
 
 
 def _extract_name(entry: dict, fallback: str) -> str:
-    for key in ("name", "location", "roadway", "description", "title"):
+    # Confirmed on the real feed: "description" is the human-readable
+    # location ("University Drive and Sager Avenue"); "name" is actually an
+    # opaque per-camera stream token, not a name -- checked last, only as a
+    # fallback in case a different shape genuinely uses "name" for a name.
+    for key in ("description", "location", "roadway", "title", "name"):
         val = _get(entry, key)
         if isinstance(val, str) and val.strip():
             return val.strip()
     return fallback
 
 
+def _is_active(entry: dict) -> bool:
+    val = _get(entry, "active", "isactive", "enabled")
+    return val is not False  # missing/None/True all count as active
+
+
 def _iter_entries(payload: Any) -> list[dict]:
+    raw: list[dict] = []
     if isinstance(payload, list):
-        return [e for e in payload if isinstance(e, dict)]
-    if isinstance(payload, dict):
+        raw = [e for e in payload if isinstance(e, dict)]
+    elif isinstance(payload, dict):
         for key in ("features", "cams", "cameras", "results", "data"):
             val = payload.get(key)
             if isinstance(val, list):
-                return [e for e in val if isinstance(e, dict)]
-    return []
+                raw = [e for e in val if isinstance(e, dict)]
+                break
+    return [_flatten_feature(e) for e in raw]
 
 
 def _fetch_raw() -> Any:
@@ -142,6 +175,9 @@ def fetch_vdot_cameras() -> list[dict]:
     in_bbox = 0
     cameras: list[dict] = []
     for entry in entries:
+        if not _is_active(entry):
+            continue
+
         latlon = _extract_lat_lon(entry)
         if latlon is None:
             continue
@@ -160,10 +196,15 @@ def fetch_vdot_cameras() -> list[dict]:
         raw_id = _get(entry, "id", "cameraid", "sourceid", "deviceid")
         cid = f"vdot-{raw_id}" if raw_id is not None else f"vdot-{lat:.5f}-{lon:.5f}"
 
+        name = _extract_name(entry, f"VDOT camera {raw_id}")
+        jurisdiction = _get(entry, "jurisdiction")
+        if isinstance(jurisdiction, str) and jurisdiction.strip():
+            name = f"{name} ({jurisdiction.strip()})"
+
         cameras.append(
             {
                 "id": str(cid),
-                "name": _extract_name(entry, f"VDOT camera {raw_id}"),
+                "name": name,
                 "lat": lat,
                 "lon": lon,
                 # VDOT's map doesn't publish a compass bearing either -- same
