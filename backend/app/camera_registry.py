@@ -64,18 +64,29 @@ def load_live_cameras(timeout: float = 8.0) -> list[dict] | None:
     for entry in payload:
         try:
             cid = str(entry.get("id") or entry.get("cameraId") or entry.get("CameraID"))
+            # The real DDOT/Camera payload carries "lat"/"lng" as strings.
             lat = float(entry.get("lat") or entry.get("Latitude"))
-            lon = float(entry.get("lon") or entry.get("lng") or entry.get("Longitude"))
+            lon = float(entry.get("lng") or entry.get("lon") or entry.get("Longitude"))
         except (TypeError, ValueError):
             continue
+
+        host = entry.get("host")
+        stream = entry.get("stream")
+        stream_url = entry.get("streamUrl") or entry.get("hls") or entry.get("Url")
+        if not stream_url and host and stream:
+            stream_url = f"https://{host}/rtplive/{stream}/playlist.m3u8"
+
         cameras.append(
             {
                 "id": cid,
-                "name": entry.get("name") or entry.get("Location") or f"Camera {cid}",
+                "name": entry.get("title") or entry.get("name") or entry.get("Location") or f"Camera {cid}",
                 "lat": lat,
                 "lon": lon,
-                "bearing_deg": float(entry.get("bearing", 0.0) or 0.0),
-                "stream_url": entry.get("streamUrl") or entry.get("hls") or entry.get("Url"),
+                # The feed doesn't publish a compass bearing for each camera,
+                # so this is a stable per-camera placeholder, same caveat as
+                # the seed data (see README's geo-projection limitation).
+                "bearing_deg": float(entry.get("bearing", (hash(cid) % 360)) or 0.0),
+                "stream_url": stream_url,
                 "snapshot_url": entry.get("snapshotUrl") or entry.get("imageUrl"),
                 "source": "ddot_mqtt",
             }

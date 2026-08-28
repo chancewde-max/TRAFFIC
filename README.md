@@ -30,9 +30,26 @@ Set with `CAMERA_MODE` (backend env var):
   with OpenCV, and runs YOLOv8 vehicle detection (`ultralytics`) + a
   lightweight IOU tracker to find real vehicles frame to frame. Requires the
   optional heavy deps commented out in `backend/requirements.txt`
-  (`opencv-python-headless`, `ultralytics`, `torch`) and `DDOT_MQTT_HOST` set.
-  If live mode fails to reach the broker or a camera's stream, it falls back
-  to the mock simulator for that camera rather than crashing.
+  (`opencv-python-headless`, `ultralytics`, `torch`) — verified working with
+  real YOLO inference in this repo's dev environment. The broker connection
+  details (host, port, MQTT-over-WebSocket transport, topic name) are
+  hardcoded defaults verified against
+  [ddotcli's source](https://github.com/a10y/ddotcli/blob/master/pkg/ddot/ddot.go),
+  so no extra config is needed to *try* live mode — only override
+  `DDOT_MQTT_*` if DDOT changes their broker. If the broker or a camera's
+  stream can't be reached (checked directly — see below), that camera falls
+  back to the mock simulator rather than crashing the app.
+
+  **Sandboxed/CI environments:** this broker sits on a specific AWS Amazon MQ
+  host, and some sandboxes only allow egress to an allowlist of domains — in
+  this repo's own dev environment the connection was refused at the TLS layer
+  by the network gateway itself (confirmed via a raw TCP+TLS test, independent
+  of this app's code) even though the code and credentials are correct. If
+  `HTTPS_PROXY` is set, the MQTT client routes through it automatically
+  (needs `pysocks`, already in `requirements.txt`) — that gets you past a
+  "no direct internet" restriction, but not past a gateway that blocks the
+  destination outright. A normal machine or cloud host with unrestricted
+  outbound internet should connect fine.
 
 ### Important limitation: vehicle positions are approximate
 
@@ -96,9 +113,13 @@ Then open http://localhost:5173. It talks to the backend at
 cd backend
 pip install opencv-python-headless ultralytics torch  # uncomment in requirements.txt too
 export CAMERA_MODE=live
-export DDOT_MQTT_HOST=<ddot mqtt broker host>   # see backend/app/mqtt_client.py for details
 uvicorn app.main:app --reload
 ```
+
+No `DDOT_MQTT_HOST` needed — it defaults to the real broker. Cameras the live
+registry doesn't return a stream for (or whose stream fails to open) keep
+running the mock simulator individually, so the app degrades per-camera
+rather than all-or-nothing.
 
 `ultralytics`/`torch` are ~1-2GB and CPU inference is slow — a GPU box is
 recommended if you run more than a couple of live cameras at once.
@@ -152,7 +173,15 @@ frontend/src/
 - Seed camera locations: 28 well-known DC intersections with approximate
   public coordinates (`backend/seed_data/dc_cameras.json`), used as a
   zero-config fallback and as the mock-mode camera list.
-- Live camera registry & incident feed: DDOT's public MQTT broker, documented
-  by the community [`ddotcli`](https://github.com/a10y/ddotcli) project. The
-  broker credentials referenced in `backend/app/config.py` are published
-  there as a public feed, not a private secret.
+- Live camera registry: DDOT's public MQTT broker, connection details (host,
+  port, transport, `DDOT/Camera` topic, payload shape) verified against the
+  source of the community
+  [`ddotcli`](https://github.com/a10y/ddotcli/blob/master/pkg/ddot/ddot.go)
+  project. The credentials referenced in `backend/app/config.py` are
+  published there as a public feed, not a private secret. The feed doesn't
+  publish a per-camera compass bearing, so (like the seed data) live cameras
+  get a stable placeholder bearing — see the geo-projection limitation above.
+- Live incident feed: an `DDOT/Incidents` MQTT topic is wired up
+  (`backend/app/mqtt_client.py::IncidentListener`) but its topic name, unlike
+  the camera one, is *not* confirmed against source — treat it as best-effort
+  and verify independently before relying on it.

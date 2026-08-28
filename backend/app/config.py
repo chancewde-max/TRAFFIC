@@ -19,13 +19,23 @@ class Settings:
     # "live"  -> real DDOT MQTT camera registry + real video pulled per camera
     camera_mode: str = os.environ.get("CAMERA_MODE", "mock")
 
-    # DDOT public MQTT broker (credentials are published publicly, e.g. by the
-    # community ddotcli tool: https://github.com/a10y/ddotcli)
-    ddot_mqtt_host: str = os.environ.get("DDOT_MQTT_HOST", "")
-    ddot_mqtt_port: int = int(os.environ.get("DDOT_MQTT_PORT", "8883"))
+    # DDOT's public MQTT broker (an AWS Amazon MQ instance, MQTT-over-WebSocket
+    # on port 61619). Host, port, transport, topic name, and credentials below
+    # are verified against the source of the community ddotcli tool
+    # (https://github.com/a10y/ddotcli/blob/master/pkg/ddot/ddot.go) -- the
+    # username/password are published there as a public feed, not a secret.
+    ddot_mqtt_host: str = os.environ.get(
+        "DDOT_MQTT_HOST", "b-8c165eea-0974-40be-9e62-ad394d480541-1.mq.us-east-1.amazonaws.com"
+    )
+    ddot_mqtt_port: int = int(os.environ.get("DDOT_MQTT_PORT", "61619"))
+    ddot_mqtt_transport: str = os.environ.get("DDOT_MQTT_TRANSPORT", "websockets")
+    ddot_mqtt_ws_path: str = os.environ.get("DDOT_MQTT_WS_PATH", "/")
     ddot_mqtt_username: str = os.environ.get("DDOT_MQTT_USERNAME", "dcdot")
     ddot_mqtt_password: str = os.environ.get("DDOT_MQTT_PASSWORD", "cctvddotpublic")
-    ddot_mqtt_camera_topic: str = os.environ.get("DDOT_MQTT_CAMERA_TOPIC", "DDOT/Cameras")
+    ddot_mqtt_camera_topic: str = os.environ.get("DDOT_MQTT_CAMERA_TOPIC", "DDOT/Camera")
+    # Unlike the camera topic above, this one is *not* confirmed against
+    # ddotcli's source -- it only appeared in secondary descriptions of the
+    # feed. Treat DDOT-sourced ("external") incidents as best-effort.
     ddot_mqtt_incident_topic: str = os.environ.get("DDOT_MQTT_INCIDENT_TOPIC", "DDOT/Incidents")
 
     # Detection model (only used when camera_mode == "live")
