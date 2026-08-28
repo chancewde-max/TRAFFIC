@@ -5,8 +5,8 @@ from sqlalchemy import func
 
 from ..broadcast import broadcaster
 from ..db import session_scope
-from ..models import Camera, CongestionSample
-from ..schemas import CameraOut, CongestionOut
+from ..models import Camera, CongestionSample, Incident
+from ..schemas import CameraOut, CongestionOut, IncidentOut
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -33,7 +33,15 @@ def _initial_snapshot() -> dict:
         )
         congestion_payload = [CongestionOut.model_validate(r).model_dump(mode="json") for r in rows]
 
-    return {"type": "init", "cameras": camera_payload, "congestion": congestion_payload}
+        incident_rows = session.query(Incident).order_by(Incident.ts.desc()).limit(50).all()
+        incident_payload = [IncidentOut.model_validate(r).model_dump(mode="json") for r in incident_rows]
+
+    return {
+        "type": "init",
+        "cameras": camera_payload,
+        "congestion": congestion_payload,
+        "incidents": incident_payload,
+    }
 
 
 @router.websocket("/ws/live")

@@ -46,7 +46,7 @@ export interface HistoryPoint {
 }
 
 export type LiveMessage =
-  | { type: "init"; cameras: Camera[]; congestion: Congestion[] }
+  | { type: "init"; cameras: Camera[]; congestion: Congestion[]; incidents: Incident[] }
   | { type: "vehicles"; camera_id: string; positions: VehiclePosition[] }
   | ({ type: "congestion" } & Congestion)
   | ({ type: "incident" } & Incident);

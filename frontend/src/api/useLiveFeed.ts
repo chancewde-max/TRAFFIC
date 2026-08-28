@@ -50,6 +50,7 @@ export function useLiveFeed() {
         if (msg.type === "init") {
           setCameras(msg.cameras);
           setCongestionByCamera(Object.fromEntries(msg.congestion.map((c) => [c.camera_id, c])));
+          setIncidents(msg.incidents);
         } else if (msg.type === "vehicles") {
           const now = performance.now();
           const seen = new Set<string>();
