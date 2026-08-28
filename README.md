@@ -5,6 +5,10 @@ vehicle movement, per-camera congestion levels, historical trends, and an
 incident feed — driven by a computer-vision pipeline over public DDOT traffic
 camera feeds.
 
+**Live:** https://dc-traffic-tracker.vercel.app (frontend, Vercel) ·
+https://backend-production-79ef.up.railway.app (backend API, Railway) —
+running in `CAMERA_MODE=mock`.
+
 ## How it works
 
 - **Backend** (`backend/`, FastAPI + SQLAlchemy): maintains the camera
