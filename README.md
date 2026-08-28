@@ -27,15 +27,15 @@ Set with `CAMERA_MODE` (backend env var):
   simulator (`backend/app/cv/pipeline.py::MockCameraSimulator`) that
   generates plausible vehicle flow, with density that oscillates over time so
   congestion levels and incidents are visibly dynamic. This is what runs out
-  of the box and what the screenshots below were taken from.
+  of the box.
 
 - **`live`** — pulls DC's real public camera registry over DDOT's MQTT feed
   (see `backend/app/mqtt_client.py`), opens each camera's real video stream
   with OpenCV, and runs YOLOv8 vehicle detection (`ultralytics`) + a
-  lightweight IOU tracker to find real vehicles frame to frame. Requires the
-  optional heavy deps commented out in `backend/requirements.txt`
-  (`opencv-python-headless`, `ultralytics`, `torch`) — verified working with
-  real YOLO inference in this repo's dev environment. The broker connection
+  lightweight IOU tracker to find real vehicles frame to frame. The heavy deps
+  this needs (`opencv-python-headless`, `ultralytics`, a CPU-only `torch`
+  build) are in `backend/requirements.txt` unconditionally — verified working
+  with real YOLO inference in this repo's dev environment. The broker connection
   details (host, port, MQTT-over-WebSocket transport, topic name) are
   hardcoded defaults verified against
   [ddotcli's source](https://github.com/a10y/ddotcli/blob/master/pkg/ddot/ddot.go),
@@ -115,7 +115,7 @@ Then open http://localhost:5173. It talks to the backend at
 
 ```bash
 cd backend
-pip install opencv-python-headless ultralytics torch  # uncomment in requirements.txt too
+pip install -r requirements.txt   # already includes opencv/ultralytics/torch
 export CAMERA_MODE=live
 uvicorn app.main:app --reload
 ```
@@ -129,12 +129,15 @@ rather than all-or-nothing.
 recommended if you run more than a couple of live cameras at once.
 `MAX_ACTIVE_CAMERAS` caps how many camera pipelines run concurrently.
 
-### Full 3D basemap (buildings, streets, labels)
+### Basemap
 
-By default the map uses a self-contained blank background (no external tile
-dependency, so it always renders). Point it at a real vector basemap style —
-e.g. a free [MapTiler](https://www.maptiler.com/) key — for streets, labels,
-and 3D building extrusion:
+By default the map uses [OpenFreeMap](https://openfreemap.org)'s free
+`liberty` vector style — streets, labels, buildings, no API key, no usage
+cap. If that style fails to load (network policy blocking it, provider
+outage), the map falls back to a self-contained blank background rather than
+getting stuck with no camera/vehicle layers at all. Override
+`VITE_MAP_STYLE_URL` for something else — e.g. a free
+[MapTiler](https://www.maptiler.com/) key — for 3D building extrusion:
 
 ```bash
 # frontend/.env.local

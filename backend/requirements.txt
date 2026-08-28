@@ -12,9 +12,10 @@ paho-mqtt>=2.1,<3.0
 # through an HTTP CONNECT proxy) -- harmless/unused otherwise.
 pysocks>=1.7,<2.0
 
-# --- Optional: only needed for CAMERA_MODE=live (real video + detection) ---
-# Uncomment to enable real computer-vision tracking from camera video.
-# These are heavy (torch pulls in ~1-2GB) and unnecessary for mock mode.
-# opencv-python-headless>=4.9
-# ultralytics>=8.2
-# torch>=2.2
+# --- CAMERA_MODE=live: real video + detection ---
+# torch is installed separately (see Dockerfile / README) from PyTorch's
+# CPU-only wheel index -- `--extra-index-url` here isn't enough to force it,
+# since pip still considers the default PyPI index's much larger
+# CUDA-bundled build a valid (often preferred) match.
+opencv-python-headless>=4.9
+ultralytics>=8.2

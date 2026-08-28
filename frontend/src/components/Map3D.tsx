@@ -9,17 +9,21 @@ import type { Camera, Congestion, VehiclePosition } from "../types";
 
 const DC_CENTER: [number, number] = [-77.0369, 38.9072];
 
-// Self-contained style with no external tile dependency, so the map (and the
-// camera/vehicle/congestion layers on top of it) still render if outbound
-// access to a basemap tile provider is unavailable. Set VITE_MAP_STYLE_URL to
-// a real vector style (e.g. a MapTiler key) to get streets, labels, and 3D
-// building extrusion.
+// Self-contained style with no external tile dependency -- used as a
+// fallback if the real basemap style below fails to load (e.g. no outbound
+// access to the tile provider), so the camera/vehicle/congestion layers on
+// top always still render even without a basemap.
 const BLANK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   name: "Blank",
   sources: {},
   layers: [{ id: "background", type: "background", paint: { "background-color": "#0b1016" } }],
 };
+
+// OpenFreeMap (https://openfreemap.org) hosts free vector tiles with no API
+// key and no usage cap. Set VITE_MAP_STYLE_URL to override (e.g. a MapTiler
+// key) for 3D building extrusion.
+const DEFAULT_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 interface Props {
   cameras: Camera[];
@@ -46,7 +50,7 @@ export default function Map3D({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: import.meta.env.VITE_MAP_STYLE_URL || BLANK_STYLE,
+      style: import.meta.env.VITE_MAP_STYLE_URL || DEFAULT_STYLE_URL,
       center: DC_CENTER,
       zoom: 12.5,
       pitch: 55,
@@ -62,6 +66,19 @@ export default function Map3D({
     map.addControl(overlay as unknown as maplibregl.IControl);
 
     map.on("load", () => setReady(true));
+
+    // If the real basemap style can't be fetched (network policy, provider
+    // outage), fall back to the blank style rather than leaving the map
+    // stuck with no "load" event and no camera/vehicle layers ever rendered.
+    let fellBack = false;
+    map.on("error", (e) => {
+      if (fellBack) return;
+      const status = (e.error as { status?: number } | undefined)?.status;
+      if (status !== undefined && status < 400) return;
+      fellBack = true;
+      console.warn("Basemap style failed to load; falling back to blank background.", e.error);
+      map.setStyle(BLANK_STYLE);
+    });
 
     return () => {
       map.remove();
