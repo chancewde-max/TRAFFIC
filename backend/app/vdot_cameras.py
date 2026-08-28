@@ -1,15 +1,19 @@
-"""Fetches Virginia's public VDOT 511 camera map data (locations + snapshot
-image URLs) for the DC metro area.
+"""Fetches Virginia's public VDOT 511 camera map data (locations, snapshot
+images, and HLS video URLs) for the DC metro area.
 
-VDOT makes 511 traffic camera *video* available to third parties, but only
-through a subscription agreement with their contractor Iteris
-(511_videosubscription@iteris.com) -- not something this app can wire up on
-its own. The map endpoint here is different: it's what VDOT's own public
-511 map calls to render camera pins with snapshot thumbnails, and doesn't
-require that agreement. Its schema isn't publicly documented, so parsing is
-defensive -- this returns an empty list on any failure or unrecognized
-shape rather than raising, same as every other best-effort integration in
-this codebase (DDOT MQTT, Overpass road snapping).
+This is the same endpoint VDOT's own public 511 map calls to render camera
+pins -- any visitor's browser loads these URLs with no login, same as this
+app does. Its schema isn't publicly documented, so parsing is defensive --
+this returns an empty list on any failure or unrecognized shape rather than
+raising, same as every other best-effort integration in this codebase (DDOT
+MQTT, Overpass road snapping).
+
+Note: VDOT separately offers a formal subscription arrangement (via their
+contractor Iteris, 511_videosubscription@iteris.com) for third parties who
+want to integrate/redistribute this video at scale as part of their own
+product. What's wired up here is equivalent to what a normal visitor's
+browser already does on VDOT's own public map -- not that higher-volume
+commercial integration.
 """
 
 from __future__ import annotations
@@ -100,6 +104,15 @@ def _extract_image_url(entry: dict) -> str | None:
                 if isinstance(url, str) and url.startswith("http"):
                     return url
 
+    return None
+
+
+def _extract_stream_url(entry: dict) -> str | None:
+    # Confirmed real field: "https_url" is an HLS (.m3u8) playlist. "ios_url"
+    # is an alternate HLS variant VDOT serves for iOS; kept as a fallback.
+    direct = _get(entry, "https_url", "hls_url", "stream_url", "streamurl", "ios_url", "m3u8_url")
+    if isinstance(direct, str) and direct.startswith("http"):
+        return direct
     return None
 
 
@@ -210,7 +223,7 @@ def fetch_vdot_cameras() -> list[dict]:
                 # VDOT's map doesn't publish a compass bearing either -- same
                 # stable-placeholder approach as the DDOT/seed cameras.
                 "bearing_deg": float(hash(str(cid)) % 360),
-                "stream_url": None,
+                "stream_url": _extract_stream_url(entry),
                 "snapshot_url": image_url,
                 "source": "vdot_511",
             }

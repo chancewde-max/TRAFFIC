@@ -2,6 +2,7 @@ from app.vdot_cameras import (
     _extract_image_url,
     _extract_lat_lon,
     _extract_name,
+    _extract_stream_url,
     _is_active,
     _iter_entries,
     fetch_vdot_cameras,
@@ -63,6 +64,20 @@ def test_extract_image_url_nested_views():
 def test_extract_image_url_non_http_value_ignored():
     entry = {"url": "not-a-url"}
     assert _extract_image_url(entry) is None
+
+
+def test_extract_stream_url_prefers_https_url():
+    entry = {"https_url": "https://media.example.com/stream/playlist.m3u8", "ios_url": "https://other"}
+    assert _extract_stream_url(entry) == "https://media.example.com/stream/playlist.m3u8"
+
+
+def test_extract_stream_url_falls_back_to_ios_url():
+    entry = {"ios_url": "https://media.example.com/stream_sfm4s/playlist.m3u8"}
+    assert _extract_stream_url(entry) == "https://media.example.com/stream_sfm4s/playlist.m3u8"
+
+
+def test_extract_stream_url_missing_returns_none():
+    assert _extract_stream_url({}) is None
 
 
 def test_extract_name_prefers_description_over_name():
@@ -139,6 +154,7 @@ def test_fetch_vdot_cameras_real_shape_end_to_end(monkeypatch):
     assert "Camera A" in cameras[0]["name"]
     assert "City of Fairfax" in cameras[0]["name"]
     assert cameras[0]["snapshot_url"].startswith("https://snapshot.vdotcameras.com/")
+    assert cameras[0]["stream_url"].endswith("playlist.m3u8")
     assert cameras[0]["source"] == "vdot_511"
 
 

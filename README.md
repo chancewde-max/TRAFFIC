@@ -23,21 +23,38 @@ running in `CAMERA_MODE=mock`.
 DDOT's own MQTT camera feed (see below) turned out to be dead -- the broker
 hostname doesn't resolve from anywhere, not just from restricted sandboxes.
 As a second real source, `backend/app/vdot_cameras.py` pulls real camera
-locations + real live snapshot images from VDOT's public 511 map (Virginia,
-densest in Northern Virginia/DC suburbs), filtered to the DC metro area.
+locations, real live snapshot images, *and* real live HLS video from VDOT's
+public 511 map (Virginia, densest in Northern Virginia/DC suburbs), filtered
+to the DC metro area -- confirmed live in production: **463 real cameras**
+matched. This is the same endpoint VDOT's own public map calls; any
+visitor's browser already loads this with no login.
+
 These are additive and never get a simulated traffic pipeline attached --
-click one on the map and you get its actual current image, nothing
-simulated layered on top. The sidebar/panel always shows a camera's real
-`source` (`DDOT live feed` / `VDOT 511 — real live image` / `Seed /
-simulated`) so it's never ambiguous which is which. VDOT's schema isn't
+click one on the map and you get its actual current video/image, nothing
+simulated layered on top, next to a real live-ticking Eastern Time clock
+(`frontend/src/components/LiveClock.tsx`) so it's clear exactly when
+you're looking at. Real cameras render with an amber marker on the map
+(vs. gray for simulated ones) and a "REAL" badge in the sidebar, which has
+an All/Real/Simulated filter -- with 463 real + 28 simulated in one list,
+finding a specific one without that would be painful. The sidebar/panel
+also always shows a camera's real `source` (`DDOT live feed` / `VDOT 511 —
+real live camera` / `Seed / simulated`) so it's never ambiguous which is
+which, and a real camera never shows a congestion/vehicle-count column on
+the map -- there's no simulated data behind it to show.
+
+Video playback is `frontend/src/components/LiveVideo.tsx` (hls.js, since
+only Safari supports HLS natively); if a stream fails to load (bad CORS
+headers, network hiccup), it falls back to the still-live, auto-refreshing
+snapshot image rather than showing a broken player. VDOT's schema isn't
 publicly documented, so the parser is defensive (case-insensitive, several
 possible field names/shapes) -- check the `VDOT cameras: N in DC-metro bbox`
 startup log line to see how many it actually matched.
 
-Note: VDOT also offers real live *video* (not just snapshots), but only
-through a subscription agreement with their contractor Iteris
-(511_videosubscription@iteris.com) -- that's a real human process, not
-something wired up here.
+**What this doesn't do, on purpose:** no license plate recognition or
+per-vehicle identity tracking. That's a real surveillance capability most
+states specifically regulate (retention, access, authorized use) and it's
+out of scope for an open traffic-visualization project without a stated
+legal authority behind it.
 
 ### Two camera modes
 
@@ -215,6 +232,8 @@ backend/app/
   routers/live.py            WebSocket: live vehicle/congestion/incident stream
 frontend/src/
   components/Map3D.tsx     deck.gl + MapLibre 3D map
+  components/LiveVideo.tsx  HLS player (hls.js) for real VDOT camera streams
+  components/LiveClock.tsx  live-ticking Eastern Time clock
   api/useLiveFeed.ts        WebSocket client + client-side position interpolation
 ```
 

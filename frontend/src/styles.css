@@ -10,6 +10,7 @@
   --light: #f4d03f;
   --moderate: #e67e22;
   --heavy: #e74c3c;
+  --real: #ffb703;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -156,6 +157,39 @@ body,
   color: #fff;
 }
 
+.real-badge {
+  background: var(--real);
+  color: #241a00;
+}
+
+.filter-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.filter-btn {
+  flex: 1;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.filter-btn:hover {
+  background: #182230;
+}
+
+.filter-btn.active {
+  background: var(--real);
+  border-color: var(--real);
+  color: #241a00;
+  font-weight: 600;
+}
+
 .legend {
   display: flex;
   flex-direction: column;
@@ -181,7 +215,8 @@ body,
   gap: 8px;
 }
 
-.camera-panel img {
+.camera-panel img,
+.camera-panel video {
   width: 100%;
   border-radius: 6px;
   background: #000;

@@ -102,19 +102,31 @@ export default function Map3D({
       radiusUnits: "meters",
       radiusMinPixels: 4,
       radiusMaxPixels: 10,
-      getFillColor: (c) => (c.id === selectedCameraId ? [79, 209, 255] : [220, 226, 233]),
+      // Real (VDOT) cameras get a distinct amber color so they're visually
+      // obvious against the simulated DC ones, at any zoom -- not just
+      // discoverable by reading each panel's source label.
+      getFillColor: (c) =>
+        c.id === selectedCameraId ? [79, 209, 255] : c.source === "vdot_511" ? [255, 183, 3] : [220, 226, 233],
       getLineColor: [10, 14, 20],
       lineWidthMinPixels: 1,
       stroked: true,
       pickable: true,
+      updateTriggers: {
+        getFillColor: selectedCameraId,
+      },
       onClick: (info) => {
         if (info.object) onSelectCamera((info.object as Camera).id);
       },
     });
 
+    // Congestion columns only make sense for cameras with actual congestion
+    // data behind them -- showing one over a real VDOT camera (no simulated
+    // traffic attached to it) would imply a live level that isn't real.
+    const congestionCameras = cameras.filter((c) => c.source !== "vdot_511");
+
     const congestionLayer = new ColumnLayer<Camera>({
       id: "congestion",
-      data: cameras,
+      data: congestionCameras,
       diskResolution: 6,
       radius: 26,
       extruded: true,
