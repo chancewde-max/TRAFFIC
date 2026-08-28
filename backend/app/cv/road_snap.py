@@ -52,7 +52,18 @@ def _build_query(cameras: list, radius_m: float, overpass_timeout_s: int) -> str
 
 def _query_overpass(query: str, timeout: float) -> list[dict]:
     body = urllib.parse.urlencode({"data": query}).encode("utf-8")
-    req = urllib.request.Request(OVERPASS_URL, data=body, method="POST")
+    req = urllib.request.Request(
+        OVERPASS_URL,
+        data=body,
+        method="POST",
+        headers={
+            # Overpass/OSM infrastructure rejects the default
+            # "Python-urllib/x.y" User-Agent (HTTP 406) -- they require a
+            # descriptive one identifying the application.
+            "User-Agent": "dc-traffic-tracker/1.0 (+https://github.com/chancewde-max/TRAFFIC)",
+            "Accept": "application/json",
+        },
+    )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     return payload.get("elements", [])
