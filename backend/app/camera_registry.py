@@ -12,6 +12,7 @@ import os
 from .config import settings
 from .db import session_scope
 from .models import Camera
+from .vdot_cameras import fetch_vdot_cameras
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,16 @@ def sync_camera_registry() -> list[Camera]:
 
     if cameras is None:
         cameras = load_seed_cameras()
+
+    # Additive, independent of CAMERA_MODE: real VDOT camera locations with
+    # real live snapshot images, layered on top of the DC cameras above.
+    # These never get a simulated traffic pipeline (see worker.py) -- they
+    # show only what's actually real (location + live image), nothing
+    # simulated attached to them.
+    try:
+        cameras = cameras + fetch_vdot_cameras()
+    except Exception:
+        logger.exception("VDOT camera merge failed; continuing with DC cameras only")
 
     with session_scope() as session:
         existing = {c.id: c for c in session.query(Camera).all()}

@@ -18,6 +18,27 @@ running in `CAMERA_MODE=mock`.
   deck.gl) animating vehicles in real time, with a sidebar for camera
   snapshots, congestion, history charts, and incidents.
 
+### Real cameras, honestly labeled
+
+DDOT's own MQTT camera feed (see below) turned out to be dead -- the broker
+hostname doesn't resolve from anywhere, not just from restricted sandboxes.
+As a second real source, `backend/app/vdot_cameras.py` pulls real camera
+locations + real live snapshot images from VDOT's public 511 map (Virginia,
+densest in Northern Virginia/DC suburbs), filtered to the DC metro area.
+These are additive and never get a simulated traffic pipeline attached --
+click one on the map and you get its actual current image, nothing
+simulated layered on top. The sidebar/panel always shows a camera's real
+`source` (`DDOT live feed` / `VDOT 511 — real live image` / `Seed /
+simulated`) so it's never ambiguous which is which. VDOT's schema isn't
+publicly documented, so the parser is defensive (case-insensitive, several
+possible field names/shapes) -- check the `VDOT cameras: N in DC-metro bbox`
+startup log line to see how many it actually matched.
+
+Note: VDOT also offers real live *video* (not just snapshots), but only
+through a subscription agreement with their contractor Iteris
+(511_videosubscription@iteris.com) -- that's a real human process, not
+something wired up here.
+
 ### Two camera modes
 
 Set with `CAMERA_MODE` (backend env var):
@@ -29,7 +50,8 @@ Set with `CAMERA_MODE` (backend env var):
   congestion levels and incidents are visibly dynamic. This is what runs out
   of the box.
 
-- **`live`** — pulls DC's real public camera registry over DDOT's MQTT feed
+- **`live`** — *currently non-functional; DDOT's broker appears to be dead,
+  see below.* Pulls DC's real public camera registry over DDOT's MQTT feed
   (see `backend/app/mqtt_client.py`), opens each camera's real video stream
   with OpenCV, and runs YOLOv8 vehicle detection (`ultralytics`) + a
   lightweight IOU tracker to find real vehicles frame to frame. The heavy deps
@@ -41,19 +63,20 @@ Set with `CAMERA_MODE` (backend env var):
   [ddotcli's source](https://github.com/a10y/ddotcli/blob/master/pkg/ddot/ddot.go),
   so no extra config is needed to *try* live mode — only override
   `DDOT_MQTT_*` if DDOT changes their broker. If the broker or a camera's
-  stream can't be reached (checked directly — see below), that camera falls
-  back to the mock simulator rather than crashing the app.
+  stream can't be reached, that camera falls back to the mock simulator
+  rather than crashing the app.
 
-  **Sandboxed/CI environments:** this broker sits on a specific AWS Amazon MQ
-  host, and some sandboxes only allow egress to an allowlist of domains — in
-  this repo's own dev environment the connection was refused at the TLS layer
-  by the network gateway itself (confirmed via a raw TCP+TLS test, independent
-  of this app's code) even though the code and credentials are correct. If
-  `HTTPS_PROXY` is set, the MQTT client routes through it automatically
-  (needs `pysocks`, already in `requirements.txt`) — that gets you past a
-  "no direct internet" restriction, but not past a gateway that blocks the
-  destination outright. A normal machine or cloud host with unrestricted
-  outbound internet should connect fine.
+  **The broker is unreachable, and it's not a network restriction.** Deployed
+  on Railway (normal, unrestricted outbound internet -- confirmed by that
+  same deployment successfully reaching GitHub, PyPI, and the Overpass API),
+  the connection still fails with a DNS resolution error: the hostname
+  simply doesn't resolve, from anywhere. AWS Amazon MQ broker hostnames are
+  tied to a specific broker instance; the most likely explanation is DDOT
+  recreated or decommissioned that instance since `ddotcli` was last
+  updated, which would make the old hostname permanently dead rather than
+  temporarily blocked. Real DC camera *video* isn't currently reachable
+  through any means this project has found. See "Real cameras, honestly
+  labeled" above for what real data the app shows instead.
 
 ### Road-snapped motion
 
@@ -168,8 +191,9 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Covers the pixel→geo projection, road-polyline arc-length math, the IOU
-tracker, congestion thresholds, and the rolling-baseline incident detector.
+Covers the pixel→geo projection, road-polyline arc-length math, the VDOT
+camera parser's schema-defensive field extraction, the IOU tracker,
+congestion thresholds, and the rolling-baseline incident detector.
 `.github/workflows/ci.yml` runs this plus a frontend build on every push.
 
 ## Key files
@@ -183,7 +207,8 @@ backend/app/
   cv/tracker.py            lightweight IOU tracker
   cv/pipeline.py            per-camera mock simulator + live pipeline
   camera_registry.py     DDOT MQTT camera list, with seed fallback
-  mqtt_client.py           DDOT public MQTT client
+  mqtt_client.py           DDOT public MQTT client (currently dead, see above)
+  vdot_cameras.py           real VDOT camera locations + live snapshot images
   worker.py                 orchestrates all camera pipelines, persists history
   services/congestion.py  vehicle count/speed -> congestion level
   services/incidents.py    rolling-baseline anomaly detection

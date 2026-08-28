@@ -54,6 +54,25 @@ class Settings:
     # redeploy doesn't need to re-query Overpass for cameras already matched.
     road_cache_path: str = os.environ.get("ROAD_CACHE_PATH", "./data/road_cache.json")
 
+    # VDOT's public camera map endpoint (Virginia's 511 system, ~1700 cameras
+    # statewide, densest in Northern Virginia). This is the *snapshot image*
+    # endpoint their own public map uses -- distinct from VDOT's live H.264
+    # video streams, which require a separate subscription agreement with
+    # Iteris (511_videosubscription@iteris.com) and aren't wired up here.
+    # Schema is not publicly documented, so the parser is defensive; verify
+    # what it actually returns via the "VDOT cameras" startup log line.
+    vdot_cameras_enabled: bool = _bool("VDOT_CAMERAS_ENABLED", True)
+    vdot_cameras_url: str = os.environ.get(
+        "VDOT_CAMERAS_URL", "https://511.vdot.virginia.gov/services/map/layers/map/cams"
+    )
+    vdot_cameras_timeout_s: float = float(os.environ.get("VDOT_CAMERAS_TIMEOUT_S", "20"))
+    # Bounding box filter so we only pull DC-metro-area cameras out of VDOT's
+    # statewide network, not all ~1700 (Hampton Roads, Blue Ridge, etc).
+    vdot_bbox_min_lat: float = float(os.environ.get("VDOT_BBOX_MIN_LAT", "38.60"))
+    vdot_bbox_max_lat: float = float(os.environ.get("VDOT_BBOX_MAX_LAT", "39.10"))
+    vdot_bbox_min_lon: float = float(os.environ.get("VDOT_BBOX_MIN_LON", "-77.60"))
+    vdot_bbox_max_lon: float = float(os.environ.get("VDOT_BBOX_MAX_LON", "-76.90"))
+
     # How many cameras to run pipelines for at once (keeps CPU/GPU load bounded)
     max_active_cameras: int = int(os.environ.get("MAX_ACTIVE_CAMERAS", "12"))
 

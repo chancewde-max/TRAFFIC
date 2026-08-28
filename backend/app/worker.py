@@ -171,10 +171,20 @@ async def _relay_ddot_incidents(listener: IncidentListener, stop_event: asyncio.
 
 
 async def run_worker(stop_event: asyncio.Event) -> None:
-    cameras = await asyncio.to_thread(sync_camera_registry)
+    all_cameras = await asyncio.to_thread(sync_camera_registry)
+    # VDOT cameras (source="vdot_511") are real locations with real live
+    # snapshot images -- they never get a simulated traffic pipeline, so
+    # nothing simulated is ever attached to what's actually real. They're
+    # still served via /api/cameras and shown on the map independent of
+    # this loop.
+    vdot_count = sum(1 for c in all_cameras if c.source == "vdot_511")
+    cameras = [c for c in all_cameras if c.source != "vdot_511"]
     cameras = cameras[: settings.max_active_cameras]
     logger.info(
-        "Running %d camera pipeline(s) in %s mode", len(cameras), settings.camera_mode
+        "Running %d camera pipeline(s) in %s mode (+%d real VDOT cameras, no simulation)",
+        len(cameras),
+        settings.camera_mode,
+        vdot_count,
     )
 
     detector = None
