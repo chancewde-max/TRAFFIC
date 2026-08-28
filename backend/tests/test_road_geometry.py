@@ -1,6 +1,7 @@
 from app.cv.geo_projection import haversine_m
 from app.cv.road_geometry import (
     nearest_arc_length_m,
+    offset_point,
     point_at_distance,
     polyline_length_m,
 )
@@ -63,3 +64,28 @@ def test_nearest_arc_length_empty_polyline_is_infinite():
     dist, arc = nearest_arc_length_m([], 38.9, -77.0)
     assert dist == float("inf")
     assert arc == 0.0
+
+
+def test_offset_point_facing_north_shifts_right_to_the_east():
+    lat, lon = offset_point(38.9, -77.0, 0.0, 10.0)
+    assert abs(lat - 38.9) < 1e-9  # due-north heading -> right offset has no north/south component
+    assert lon > -77.0  # right of due north is east -> longitude increases
+
+
+def test_offset_point_facing_south_shifts_right_to_the_west():
+    lat, lon = offset_point(38.9, -77.0, 180.0, 10.0)
+    assert abs(lat - 38.9) < 1e-9
+    assert lon < -77.0  # right of due south is west -> longitude decreases
+
+
+def test_offset_point_zero_offset_is_a_no_op():
+    lat, lon = offset_point(38.9, -77.0, 45.0, 0.0)
+    assert abs(lat - 38.9) < 1e-12
+    assert abs(lon - (-77.0)) < 1e-12
+
+
+def test_offset_point_magnitude_roughly_matches_requested_meters():
+    lat, lon = offset_point(38.9, -77.0, 90.0, 25.0)  # facing east -> right is south
+    assert abs(lat - 38.9) > 0
+    dist = haversine_m(38.9, -77.0, lat, lon)
+    assert abs(dist - 25.0) < 0.5

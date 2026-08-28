@@ -109,6 +109,22 @@ below rather than breaking anything; check the `Road snapping: matched X/Y
 cameras` log line at startup to see how many actually got a real road.
 Disable entirely with `ROAD_SNAP_ENABLED=false`.
 
+Two refinements on top of that make the motion read as real traffic instead
+of dots sliding along a line:
+
+- **Lane offset** (`road_geometry.offset_point`) shifts each vehicle to the
+  right side of the street relative to its direction of travel, so opposing
+  traffic renders on opposite sides of the centerline instead of head-on
+  through each other.
+- **Car-following** (`MockCameraSimulator._car_following_speeds`, a
+  lightweight IDM/ACC-style model in `backend/app/cv/pipeline.py`) makes each
+  vehicle track the one ahead of it in the same lane: it slows to keep a
+  speed-dependent following gap rather than driving through it, and
+  acceleration/braking are rate-limited so speed changes look like a car
+  easing off or braking, not teleporting to a new speed. This is what
+  produces realistic bunching-up behind a slow vehicle under congestion,
+  instead of every vehicle just uniformly slowing down independently.
+
 ### Important limitation: vehicle positions are approximate
 
 Public traffic cameras like DDOT's don't publish per-camera calibration

@@ -7,6 +7,7 @@ testable without a live network dependency.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from .geo_projection import DEG_PER_METER_LAT, haversine_m, meters_per_degree_lon
@@ -36,9 +37,21 @@ def polyline_length_m(points: list[LatLon]) -> float:
     return cumulative_lengths_m(points)[-1]
 
 
-def _bearing_deg(a: LatLon, b: LatLon) -> float:
-    import math
+def offset_point(lat: float, lon: float, heading_deg: float, offset_m: float) -> LatLon:
+    """A point shifted `offset_m` meters to the right of `heading_deg` (compass
+    bearing, degrees clockwise from north). Used to place same-direction
+    traffic on its own side of a road's centerline instead of every vehicle
+    -- both directions included -- sharing one line down the middle."""
 
+    perp_rad = math.radians(heading_deg + 90.0)
+    dx_east = offset_m * math.sin(perp_rad)
+    dy_north = offset_m * math.cos(perp_rad)
+    dlat = dy_north * DEG_PER_METER_LAT
+    dlon = dx_east / meters_per_degree_lon(lat)
+    return lat + dlat, lon + dlon
+
+
+def _bearing_deg(a: LatLon, b: LatLon) -> float:
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
     lat2, lon2 = math.radians(b[0]), math.radians(b[1])
     dlon = lon2 - lon1
