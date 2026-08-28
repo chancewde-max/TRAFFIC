@@ -116,6 +116,18 @@ and 3D building extrusion:
 VITE_MAP_STYLE_URL=https://api.maptiler.com/maps/streets-v2/style.json?key=YOUR_KEY
 ```
 
+## Testing
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Covers the pixel→geo projection, the IOU tracker, congestion thresholds, and
+the rolling-baseline incident detector. `.github/workflows/ci.yml` runs this
+plus a frontend build on every push.
+
 ## Key files
 
 ```
