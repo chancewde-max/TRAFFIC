@@ -133,18 +133,25 @@ def fetch_vdot_cameras() -> list[dict]:
             "VDOT camera response had an unexpected shape (top-level type: %s); got 0 usable entries",
             type(payload).__name__,
         )
+        if isinstance(payload, (dict, list)):
+            sample = payload[0] if isinstance(payload, list) and payload else payload
+            logger.warning("VDOT camera raw payload sample (for schema diagnosis): %s", json.dumps(sample)[:2000])
         return []
 
+    had_latlon = 0
+    in_bbox = 0
     cameras: list[dict] = []
     for entry in entries:
         latlon = _extract_lat_lon(entry)
         if latlon is None:
             continue
+        had_latlon += 1
         lat, lon = latlon
         if not (settings.vdot_bbox_min_lat <= lat <= settings.vdot_bbox_max_lat):
             continue
         if not (settings.vdot_bbox_min_lon <= lon <= settings.vdot_bbox_max_lon):
             continue
+        in_bbox += 1
 
         image_url = _extract_image_url(entry)
         if not image_url:
@@ -169,8 +176,13 @@ def fetch_vdot_cameras() -> list[dict]:
         )
 
     logger.info(
-        "VDOT cameras: %d in DC-metro bbox with a usable image, out of %d total entries fetched",
+        "VDOT cameras: %d in DC-metro bbox with a usable image, out of %d total entries "
+        "(%d had parseable lat/lon, %d of those were in-bbox)",
         len(cameras),
         len(entries),
+        had_latlon,
+        in_bbox,
     )
+    if not cameras:
+        logger.warning("VDOT camera raw entry sample (for schema diagnosis): %s", json.dumps(entries[0])[:2000])
     return cameras
